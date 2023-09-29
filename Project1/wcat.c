@@ -1,17 +1,19 @@
 // wcat.c by Leonardo Anguiano
 // Submitted for CSC 139
 
-
 #include <stdio.h>
 #include <stdlib.h>
 
 int main(int argc, char *argv[])
 {
-    if (argc < 2)
+    // If no arguments are given, exit
+    if (argc < 1)
     {
-        printf("wcat: cannot open file\n");
-        exit(1);
+        exit(0);
     }
+
+    // Loop through each file and print its contents
+
     for (int i = 1; i < argc; i++)
     {
         FILE *fp = fopen(argv[i], "r");
@@ -20,6 +22,7 @@ int main(int argc, char *argv[])
             printf("wcat: cannot open file\n");
             exit(1);
         }
+
         char buffer[1000];
         while (fgets(buffer, 1000, fp) != NULL)
         {
@@ -27,5 +30,4 @@ int main(int argc, char *argv[])
         }
         fclose(fp);
     }
-    return 0;
 }
