@@ -6,7 +6,8 @@
 #include <stdlib.h>
 #include <sys/mman.h>
 #include <unistd.h>
-#include "umem.h" 
+#include <fcntl.h>
+#include "umem.h"
 
 // struct for the free list
 typedef struct block_header
@@ -40,18 +41,20 @@ int umeminit(size_t sizeOfRegion, int allocationAlgo)
         return -1;
     }
 
+    // check if sizeOfRegion is at least equal to the page size if not give -1
+    if (sizeOfRegion < getpagesize())
+    {
+        return -1;
+    }
+
     // get the page size
     int pageSize = getpagesize();
 
     // calculate the number of pages needed
     size_t numPages = (sizeOfRegion + pageSize - 1) / pageSize;
 
-    // allo mem for the region
-    mem_region = mmap(NULL, numPages * pageSize, PROT_READ | PROT_WRITE, MAP_ANON | MAP_PRIVATE, -1, 0);
-    if (mem_region == MAP_FAILED)
-    {
-        return -1;
-    }
+    // // allocate the memory
+    mem_region = mmap(NULL, numPages * pageSize, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
 
     head = (block_header *)mem_region;
     head->size = numPages * pageSize - sizeof(block_header);
@@ -153,7 +156,6 @@ block_header *next_fit(size_t size)
     block_header *current = last_alloc;
     do
     {
-        /* code */
         if (current->free && current->size >= size)
         {
             current->free = 0;
@@ -184,24 +186,23 @@ void *umalloc(size_t size)
     // Add space for block header
     size += sizeof(block_header);
 
-    // check if the request size is greater than any contiguous free space
-    size_t max_free_size = 0;
+    // check to see if there is a contiguous block of memory that is large enough
     block_header *current = head;
     while (current != NULL)
     {
-        if (current->free && current->size > max_free_size)
+        if (current->free && current->size >= size)
         {
-            max_free_size = current->size;
+            current->free = 0;
+            return current;
         }
         current = current->next;
     }
 
-    if (size > max_free_size)
+    // if there is not enough memory, return NULL
+    if (current == NULL)
     {
         return NULL;
     }
-
-    // if trying to allocate 0 bytes, return NULL
 
     block_header *block;
     if (allo_algo == 1)
@@ -269,7 +270,7 @@ int ufree(void *ptr)
         current = current->next;
     }
 
-    // if the block is not in the list, reuturn an error or do nothing
+    // if the block is not in the list, reuturn an error
     if (current == NULL)
     {
         return -1;
