@@ -8,9 +8,16 @@
 #include <sys/wait.h>
 #include <fcntl.h>
 
-#define MAX_ARGS 512
-#define MAX_PATHS 512
-#define MAX_LINE_LENGTH 2048
+#define MAX_ARGS 500
+#define MAX_PATHS 500
+#define MAX_LINE_LENGTH 2000
+
+// prototypes for all functions
+void print_error();
+void run_cmd(char **args, char **pths, int num_paths, int parallel);
+void external_cmds(char **cmmds, char **pths, int num_paths);
+void set_path(char **pths, int *num_paths, char *path_str);
+void change_dir(char *path);
 
 void print_error()
 {
@@ -18,76 +25,132 @@ void print_error()
     write(STDERR_FILENO, error_message, strlen(error_message));
 }
 
-void execute_command(char **args, char **paths, int num_paths, int parallel)
+void run_cmd(char **args, char **pths, int num_paths, int parallel)
 {
+    // if there are more then one arg the fork
+
     pid_t pid = fork();
     if (pid == 0)
     {
-        // Child process
+        // child process
         int i;
         char *path;
+        char *output_file = NULL;
+        // if '>' is the first char after command then throw an error
+        if (args[1] != NULL && strcmp(args[1], ">") == 0)
+        {
+            print_error();
+            exit(1);
+        }
+        // else if '>' is the first char in the command then throw an error
+        else if (args[0] != NULL && strcmp(args[0], ">") == 0)
+        {
+            print_error();
+            exit(1);
+        }
+        for (i = 0; args[i] != NULL; i++)
+        {
+            // if '>' is found in command than parse command
+            // if there is an argument after '>' then set output_file to that argument
+            if (strstr(args[i], ">") != NULL)
+            {
+                char *space = strchr(args[i], '>');
+                if (space != NULL)
+                {
+                    // Pass argument starting from character after space
+                    char *arg = space + 1;
+                    output_file = arg;
+                }
+                else
+                {
+                    // No argument provided, change to home directory
+                    output_file = NULL;
+                }
+                // change args to the argument before '>'
+                args[i] = strtok(args[i], ">");
+                // args[i] = NULL;
+                break;
+            }
+        }
+        // print the output file
+        // printf("%s\n", output_file);
         for (i = 0; i < num_paths; i++)
         {
-            path = malloc(strlen(paths[i]) + strlen(args[0]) + 2);
-            sprintf(path, "%s/%s", paths[i], args[0]);
-            // debug
+            path = malloc(strlen(pths[i]) + strlen(args[0]) + 2);
+            sprintf(path, "%s/%s", pths[i], args[0]);
 
             if (access(path, X_OK) == 0)
             {
-                // Found executable file
                 if (parallel)
                 {
-                    // Redirect standard output and error to /dev/null
-                    int fd = open("/dev/null", O_WRONLY);
+                }
+                else if (output_file != NULL)
+                {
+                    int fd = open(output_file, O_WRONLY | O_CREAT | O_TRUNC, 0644);
                     dup2(fd, STDOUT_FILENO);
-                    dup2(fd, STDERR_FILENO);
                     close(fd);
                 }
+                else
+                {
+                    dup2(STDOUT_FILENO, STDOUT_FILENO);
+                }
+
                 execv(path, args);
-                print_error();
-                exit(1);
             }
             free(path);
         }
-        // Could not find executable file
+
         print_error();
         exit(1);
     }
     else if (pid > 0)
     {
-        // Parent process
+        // parent process
         if (!parallel)
         {
-            waitpid(pid, NULL, 0);
+            wait(NULL);
         }
     }
     else
     {
-        // Fork failed
+        // fork failed
         print_error();
+        exit(1);
     }
 }
 
-void execute_commands(char **commands, char **paths, int num_paths)
+void external_cmds(char **cmmds, char **pths, int num_paths)
 {
-    int i, j, num_args, parallel;
+
+    int i, num_args, parallel;
     char **args;
-    for (i = 0; commands[i] != NULL; i++)
+    for (i = 0; cmmds[i] != NULL; i++)
     {
-        // Check for parallel commands
+        // Check for parallel cmmds
         parallel = 0;
         num_args = 0;
-        for (j = 0; commands[i][j] != '\0'; j++)
+
+        if (strstr(cmmds[i], "&") != NULL)
         {
-            if (commands[i][j] == '&')
+            parallel = 1;
+            // Find the first space character
+            char *space = strchr(cmmds[i], '&');
+            if (space != NULL)
             {
-                parallel = 1;
-                break;
+                // Pass argument starting from character after space
+                // char *arg = space + 1;
+                cmmds[i] = strtok(cmmds[i], "&");
+            }
+            else
+            {
+                // No argument provided, change to home directory
+                cmmds[i] = strtok(cmmds[i], "&");
             }
         }
+
         // Parse command into arguments
         args = malloc(MAX_ARGS * sizeof(char *));
-        args[num_args++] = strtok(commands[i], " \t\n");
+        args[num_args++] = strtok(cmmds[i], " \t\n");
         while ((args[num_args] = strtok(NULL, " \t\n")) != NULL)
         {
             num_args++;
@@ -95,41 +158,99 @@ void execute_commands(char **commands, char **paths, int num_paths)
         if (num_args > 0)
         {
             // Execute command
-            execute_command(args, paths, num_paths, parallel);
+            if (num_paths > 0)
+            {
+                run_cmd(args, pths, num_paths, parallel);
+            }
+            else
+            {
+                // Only execute built-in cmmds
+                if (strcmp(args[0], "exit") == 0)
+                {
+                    if (args[1] != NULL)
+                    {
+                        print_error();
+                    }
+                    else
+                    {
+                        exit(0);
+                    }
+                }
+                else if (strstr(args[0], "cd") != NULL)
+                {
+                    // Find first space character
+                    char *space = strchr(cmmds[i], ' ');
+                    if (space != NULL)
+                    {
+                        // Pass argument starting from character after space
+                        char *arg = space + 1;
+                        change_dir(arg);
+                    }
+                    else
+                    {
+                        // No argument provided, change to home directory
+                        change_dir(NULL);
+                    }
+                }
+                else if (strstr(args[0], "path") != NULL)
+                {
+                    // Find the first space character
+                    char *space = strchr(cmmds[i], ' ');
+                    if (space != NULL)
+                    {
+                        // Pass argument starting from character after space
+                        char *arg = space + 1;
+                        set_path(pths, &num_paths, arg);
+                    }
+                    else
+                    {
+                        // No argument provided, change to home directory
+                        set_path(pths, &num_paths, NULL);
+                    }
+                }
+                else
+                {
+                    print_error();
+                }
+            }
         }
         free(args);
     }
 }
 
-void set_path(char **paths, int *num_paths, char *path_str)
+void set_path(char **pths, int *num_paths, char *path_str)
 {
-    int i;
+
     char *path;
-    // Clear existing paths
-    for (i = 0; i < *num_paths; i++)
-    {
-        free(paths[i]);
-    }
+
     *num_paths = 0;
-    // Parse new paths
-    path = strtok(path_str, ":");
-    while (path != NULL)
+
+    // Parse new pths
+    if (path_str != NULL)
     {
-        paths[*num_paths] = malloc(strlen(path) + 1);
-        strcpy(paths[*num_paths], path);
+        path = strtok(path_str, "/");
+        while (path != NULL)
+        {
+            pths[*num_paths] = malloc(strlen(path) + 1);
+            strcpy(pths[*num_paths], path);
+            (*num_paths)++;
+            path = strtok(NULL, "/");
+        }
+    }
+
+    // If pths is empty, initialize it with "/bin"
+    if (*num_paths == 0)
+    {
+        pths[0] = malloc(strlen("/bin") + 1);
+        strcpy(pths[0], "/bin");
         (*num_paths)++;
-        path = strtok(NULL, ":");
     }
 }
 
 // change directory function
-void change_directory(char *path)
+void change_dir(char *path)
 {
     if (path == NULL)
-    {
-        print_error();
-    }
-    else if (strtok(NULL, " \t\n") != NULL)
     {
         print_error();
     }
@@ -144,14 +265,15 @@ void change_directory(char *path)
 
 int main(int argc, char **argv)
 {
+    int input_pth = 1;
     char *line = NULL;
     size_t line_size = 0;
     ssize_t line_len;
-    char *commands[MAX_ARGS];
-    int num_commands, i;
-    char *paths[MAX_PATHS];
+    char *cmmds[MAX_ARGS];
+    int num_cmmds, i;
+    char *pths[MAX_PATHS];
     int num_paths = 1;
-    paths[0] = "/bin";
+    pths[0] = "/bin";
     int interactive = 1;
     FILE *batch_file = NULL;
     // Parse command line arguments
@@ -195,18 +317,25 @@ int main(int argc, char **argv)
                 exit(0);
             }
         }
-        // Parse input into commands
-        num_commands = 0;
-        commands[num_commands++] = strtok(line, "&\n");
-        while ((commands[num_commands] = strtok(NULL, "&\n")) != NULL)
+        // Parse input into cmmds
+        // if input is a single '&' then ignore command and continue
+        // else parse into cmmds
+        if (strcmp(line, "&\n") == 0)
         {
-            num_commands++;
+            continue;
         }
-        // Execute commands
-        for (i = 0; i < num_commands; i++)
+        num_cmmds = 0;
+        cmmds[num_cmmds++] = strtok(line, "&\n");
+        while ((cmmds[num_cmmds] = strtok(NULL, "&\n")) != NULL)
         {
-            // Check for built-in commands
-            if (strcmp(commands[i], "exit") == 0)
+            num_cmmds++;
+        }
+
+        // Execute cmmds
+        for (i = 0; i < num_cmmds; i++)
+        {
+            // Check for built-in cmmds
+            if (strcmp(cmmds[i], "exit") == 0)
             {
                 if (strtok(NULL, " \t\n") != NULL)
                 {
@@ -217,18 +346,60 @@ int main(int argc, char **argv)
                     exit(0);
                 }
             }
-            else if (strcmp(commands[i], "cd") == 0)
+            else if (strstr(cmmds[i], "cd") != NULL)
             {
-                change_directory(strtok(NULL, " \t\n"));
+                // Find first space character
+                char *space = strchr(cmmds[i], ' ');
+                if (space != NULL)
+                {
+                    // Pass argument starting from character after space
+                    char *arg = space + 1;
+                    change_dir(arg);
+                }
+                else
+                {
+                    // No argument provided, change to home directory
+                    change_dir(NULL);
+                }
             }
-            else if (strcmp(commands[i], "path") == 0)
+            else if (strstr(cmmds[i], "path") != NULL)
             {
-                set_path(paths, &num_paths, strtok(NULL, "\n"));
+                // Find the frist space character
+                char *space = strchr(cmmds[i], ' ');
+                // if the given argument is null then input_pth is 0
+                if (space == NULL)
+                {
+                    input_pth = 0;
+                }
+                else
+                {
+                    input_pth = 1;
+                }
+
+                if (space != NULL)
+                {
+                    // Pass argument starting from character after space
+                    char *arg = space + 1;
+                    set_path(pths, &num_paths, arg);
+                }
+                else
+                {
+                    // No argument provided, change to home directory
+                    set_path(pths, &num_paths, NULL);
+                }
             }
             else
             {
+                // if the input_pth is 0 then execute the external command
+                // else print error and break
+                if (input_pth == 0)
+                {
+                    print_error();
+                    break;
+                }
+
                 // Execute external command
-                execute_commands(&commands[i], paths, num_paths);
+                external_cmds(&cmmds[i], pths, num_paths);
             }
         }
     }

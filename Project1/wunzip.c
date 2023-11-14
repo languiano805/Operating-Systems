@@ -39,7 +39,6 @@ int main(int argc, char *argv[])
     return 0;
 }
 
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -47,7 +46,7 @@ int main(int argc, char *argv[])
 #include <sys/wait.h>
 
 /*
-implement a command line interperter (CLI), or as it is more 
+implement a command line interperter (CLI), or as it is more
 commonly known as, a shell. the shell should operate in this basic way: when you type in a
 command (in respone to its prompt), the shell creates a child process that executes the command you entered and then prompts for more user input when it has finished
 
@@ -56,8 +55,15 @@ the shell implemented will be similar to , the one run every day in unix.
 
 int main(int argc, char *argv[])
 {
-    //determine which mode the program is in 
-
+    // determine which mode the program is in
 }
 
-//function that determines 
+// function that determines
+
+// Parse input into commands
+num_commands = 0;
+commands[num_commands++] = strtok(line, "&\n");
+while ((commands[num_commands] = strtok(NULL, "&\n")) != NULL)
+{
+    num_commands++;
+}
